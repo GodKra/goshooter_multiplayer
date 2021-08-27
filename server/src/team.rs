@@ -8,7 +8,7 @@ use bus::Bus;
 use crossbeam::channel::{self, Receiver};
 use nanoid::nanoid;
 
-use common::{Event, Packet};
+use common::*;
 use crate::{
     bullet::Bullet, 
     player::Player
@@ -43,7 +43,7 @@ impl Team {
             enemies: VecDeque::new(),
             base: vec![BaseState::Healthy; width as usize],
             
-            bullet_ticker: channel::tick(Duration::from_millis(100)),
+            bullet_ticker: channel::tick(Duration::from_millis(150)), // bullet speed
             p_bus: Some(Bus::new(1024)) 
         }
     }
@@ -66,7 +66,7 @@ impl Team {
                     }
                     Event::Fire => {
                         if player.last_fired() > Duration::from_millis(400) {
-                            self.bullets.push_back((nanoid!(8), player.fire()));
+                            self.bullets.push_back((nanoid!(BULLET_ID_LEN), player.fire()));
                         }
                     },
                     Event::Exit => {
@@ -76,11 +76,12 @@ impl Team {
                 }   
             }
         }
+
         // handle disconnects
         self.players.retain(|id, _| { 
             for pid in &disconnects {
                 if id == pid {
-                    println!("Player {} disconnected.", pid);
+                    println!("disconnect: Player {}", pid);
                     return false
                 }
             }
@@ -106,21 +107,22 @@ impl Team {
                 }
             }
 
+            // process collisions
+            for (bullet, enemy) in collisions {
+                let (bullet, _) = self.bullets.remove(bullet).unwrap();
+                let (enemy, _) = self.enemies.remove(enemy).unwrap();
+                println!("collision: bullet {}, enemy: {}", bullet, enemy);
+                packet_bus.broadcast(Packet::BulletDestroy(bullet));
+                packet_bus.broadcast(Packet::BulletDestroy(enemy));
+            }
+
             for _ in 0..invalid_b {
                 let (id, bullet) = self.bullets.pop_front().unwrap();
                 packet_bus.broadcast(Packet::BulletDestroy(id.to_string()));
                 enemy_team.add_enemy(id, bullet.x(), bullet.max_y());
             }
-
-            //collisions
-            for (bullet, enemy) in collisions {
-                let (bullet, _) = self.bullets.remove(bullet).unwrap();
-                let (enemy, _) = self.enemies.remove(enemy).unwrap();
-                packet_bus.broadcast(Packet::BulletDestroy(bullet));
-                packet_bus.broadcast(Packet::BulletDestroy(enemy));
-            }
             
-            //enemy update
+            // enemy update
             let mut invalid_e = 0;
             for (id, enemy) in self.enemies.iter_mut() {
                 if !enemy.fall() {

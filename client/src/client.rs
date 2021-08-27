@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap, 
     io::{self, Read, Write}, 
-    net::{SocketAddrV4, TcpStream}, 
+    net::{SocketAddr, TcpStream}, 
     thread, time::Duration
 };
 
@@ -31,7 +31,7 @@ pub struct Game<W: Write> {
 }
 
 impl<W: Write> Game<W> {
-    pub fn new(ip: SocketAddrV4, stdout: W) -> Game<W> {
+    pub fn new(ip: SocketAddr, stdout: W) -> Game<W> {
         let mut stream = TcpStream::connect(ip).unwrap();
 
         // get self id
@@ -126,6 +126,7 @@ impl<W: Write> Game<W> {
                     _ => (),
                 }
             } else {
+                thread::sleep(Duration::from_millis(1));
                 continue;
             }
             self.update_screen();
@@ -135,38 +136,40 @@ impl<W: Write> Game<W> {
     }
 
     fn update_screen(&mut self) {
-        self.draw_border();
+        let mut buf = Vec::with_capacity((self.width * self.height) as usize);
+        self.draw_border(&mut buf);
 
-        self.player.draw(&mut self.stdout);
+        self.player.draw(&mut buf);
         for (_, player) in self.players.iter() {
-            player.draw(&mut self.stdout);
+            player.draw(&mut buf);
         }
         for (_, bullet) in self.bullets.iter() {
-            bullet.draw(&mut self.stdout);
+            bullet.draw(&mut buf);
         }
 
+        self.stdout.write_all(&buf).unwrap();
         self.stdout.flush().unwrap();
     }
 
-    fn draw_border(&mut self) {
+    fn draw_border(&mut self, stdout: &mut impl Write) {
         let (width, height) = (self.width, self.height);
         // top
         queue!(
-            self.stdout,
+            stdout,
             cursor::MoveTo(0, 0),
             Print(format!("┏{}┓", "━".repeat(width as usize - 2))),
         ).unwrap();
         // bottom
         let base = self.base.join("");
         queue!(
-            self.stdout,
+            stdout,
             cursor::MoveTo(0, height-1),
             Print(format!("┗{}┛", base)),
         ).unwrap();
         // sides
         for y in 1..self.height-1 {
             queue!(
-                self.stdout,
+                stdout,
                 cursor::MoveTo(0, y),
                 Print(format!("┃{}┃", " ".repeat(width as usize - 2))),
             ).unwrap();

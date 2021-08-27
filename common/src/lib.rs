@@ -1,5 +1,7 @@
 use std::io::{self, Read};
 
+pub const BULLET_ID_LEN: usize = 8;
+
 #[derive(Clone, Debug)]
 pub enum Packet {
     GameStart { width: u8, height: u8, pids: Vec<u8> }, // sent when starting game | symbol @
@@ -77,13 +79,13 @@ impl Packet {
                 Ok(Some(Self::PlayerEvent{pid, event}))
             },
             b'*' => {
-                let id = Self::read_length(stream, 8)?;
+                let id = Self::read_length(stream, BULLET_ID_LEN)?;
                 let x = Self::read_byte(stream)?;
                 let y = Self::read_byte(stream)?;
                 Ok(Some(Self::BulletPos{id: String::from_utf8_lossy(&id).to_string(), x, y}))
             },
             b'^' => {
-                let id = Self::read_length(stream, 8)?;
+                let id = Self::read_length(stream, BULLET_ID_LEN)?;
                 Ok(Some(Self::BulletDestroy(String::from_utf8_lossy(&id).to_string())))
             },
             b'w' => {

@@ -33,6 +33,7 @@ impl Server {
 
         let mut topbus = self.top.get_bus();
         let mut botbus = self.bottom.get_bus();
+        let (mut echo1, mut echo2) = (topbus.add_rx(), botbus.add_rx());
         
         loop {
             if let true = self.top.handle_team(&mut self.bottom, &mut topbus) {
@@ -47,6 +48,13 @@ impl Server {
                 println!("-- Top Team Wins --");
                 break;
             };
+            if let Ok(packet) = echo1.try_recv() {
+                println!("sent: {:?}", packet);
+            }
+            if let Ok(packet) = echo2.try_recv() {
+                println!("sent: {:?}", packet)
+            }
+            
             thread::sleep(Duration::from_millis(1));
         }
         thread::sleep(Duration::from_secs(1));

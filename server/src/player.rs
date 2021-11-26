@@ -1,70 +1,71 @@
-use std::{
-    io::prelude::*,
-    net::{TcpListener, TcpStream},
-    time::{self, Duration},
-    thread,
-};
+use std::{time::{self, Duration}};
 
-use crossbeam::channel::{self, Receiver, Sender};
-use bus::{self, BusReader};
+use tokio::{io::{AsyncWriteExt, BufReader}, net::TcpListener, sync::{broadcast}};
 
-use common::{Event, Packet};
-use crate::bullet::Bullet;
+use common::*;
+
+use crate::{bullet::Bullet};
 
 pub struct Player {
-    pub reciever: Receiver<Packet>,
-    x: u8,
-    max_x: u8,
-    max_y: u8,
+    x: u32,
+    _max_x: u32,
+    max_y: u32,
     last_fired: time::Instant,
 }
 
 impl Player {
-    pub fn new(id: u8, max_x: u8, max_y: u8, listener: &TcpListener, reciever: BusReader<Packet>) -> Player {
-        let (stream, _) = listener.accept().unwrap();
-        stream.set_nonblocking(true).unwrap();
-        let (tx, rx) = channel::bounded(1024);
-        println!("Player {} connected.", id);
-        Player::handle_player(id, tx, reciever, stream);
+    pub async fn new(
+                    max_x: u32, 
+                    max_y: u32, 
+                    listener: &TcpListener, 
+                    sender: broadcast::Sender<Packet>,
+                    mut reciever: broadcast::Receiver<Packet>
+                ) -> Result<(String, Player)> {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (stream_r, mut stream_w) = stream.into_split();
+        let mut stream_r = BufReader::new(stream_r);
 
-        Player { reciever: rx, x: max_x/2, max_x, max_y, last_fired: time::Instant::now() }
-    }
-
-    fn handle_player(id: u8, sender: Sender<Packet>, mut reciever: BusReader<Packet>, mut stream: TcpStream) {
-        stream.write_all(&Packet::PlayerCreate(id).parse()).unwrap(); // send id
-
-        thread::spawn(move || loop {
-            // recieve from bus
-            if let Ok(packet) = reciever.try_recv() {
-                if let Packet::PlayerDestroy(pid) = packet.clone() {
-                    if pid == id {
-                        return; // self destroyed
+        let id = if let Ok(Some(Packet::PlayerJoin(id))) = Packet::async_read_from(&mut stream_r).await {
+            id
+        } else {
+            return Err(String::from("Player id not recieved").into());
+        };
+        
+        let pid = id.clone();
+        tokio::spawn(async move {
+            // Packet handling 
+            loop {
+                tokio::select! {
+                    Ok(packet) = reciever.recv() => {
+                        match packet {
+                            Packet::PlayerEvent { .. } => (),
+                            _ =>  { stream_w.write(&packet.parse()).await.unwrap(); },
+                        }
+                    }
+                    Ok(Some(packet)) = Packet::async_read_from(&mut stream_r) => {
+                        match packet {
+                            Packet::PlayerEvent{ event, .. } => match event {
+                                PlayerEvent::Fire => {
+                                    sender.send(Packet::PlayerEvent{pid: pid.clone(), event}).unwrap();
+                                },
+                                PlayerEvent::Exit => {
+                                    sender.send(Packet::PlayerDestroy(pid.to_string())).unwrap();
+                                },
+                            },
+                            Packet::PlayerPos { pid, x, y, } => {
+                                sender.send(Packet::PlayerPos { pid: pid.to_string(), x, y }).unwrap();
+                            },
+                            _ => (),
+                        }
                     }
                 }
-
-                if stream.write_all(&packet.parse()).is_err() {
-                    println!("Player {} write error. Disconnecting", id);
-                    sender.send(Packet::PlayerEvent{ pid: id, event: Event::Exit }).unwrap();
-                    return;
-                }
             }
-            // recieve from stream
-            if let Ok(Some(packet)) = Packet::read_from(&mut stream) {
-                sender.send(packet).unwrap();
-            }
-            thread::sleep(Duration::from_millis(1));
         });
-    }
 
-    pub fn move_right(&mut self) {
-        if self.x < self.max_x - 2 {
-            self.x += 1;
-        }
+        Ok((id, Player { x: max_x/2, _max_x: max_x, max_y, last_fired: time::Instant::now()}))
     }
-    pub fn move_left(&mut self) {
-        if self.x > 1 {
-            self.x -= 1;
-        }
+    pub fn move_to(&mut self, x: u32) {
+        self.x = x;
     }
     pub fn fire(&mut self) -> Bullet {
         self.last_fired = time::Instant::now();

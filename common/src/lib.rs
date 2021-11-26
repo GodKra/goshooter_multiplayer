@@ -8,24 +8,36 @@ pub const PLAYER_ID_MAX: usize = 8;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+const GAME_INFO:      u8 = 0x01;
+const PLAYER_JOIN:    u8 = 0x02;
+const PLAYER_DESTROY: u8 = 0x03;
+const PLAYER_EVENT:   u8 = 0x04;
+const PLAYER_POS:     u8 = 0x05;
+const BULLET_CREATE:  u8 = 0x06;
+const BULLET_DESTROY: u8 = 0x07;
+const ENEMY_CREATE:   u8 = 0x08;
+const ENEMY_DESTROY:  u8 = 0x09;
+const GAME_WON:       u8 = 0x0A;
+const GAME_LOST:      u8 = 0x0B;
+
 #[derive(Clone, Debug)]
 pub enum Packet {
-    GameInfo { width: u32, height: u32, pids: Vec<String> }, // sent when starting game | id 0x01
+    GameInfo { width: u32, height: u32, pids: Vec<String> }, // sent when starting
 
-    PlayerJoin(String), // new player joins; name max 8 | id 0x02
-    PlayerDestroy(String), // player leaves; name max 8 | id 0x03
+    PlayerJoin(String),
+    PlayerDestroy(String),
 
-    PlayerEvent {pid: String, event: PlayerEvent }, // id 0x04
-    PlayerPos { pid: String, x: u32, y: u32 }, // player position sent every loop | id 0x05
+    PlayerEvent {pid: String, event: PlayerEvent },
+    PlayerPos { pid: String, x: u32, y: u32 },
 
-    BulletCreate { id: String, x: u32, y: u32 }, // id 0x06
-    BulletDestroy(String), // id 0x07
+    BulletCreate { id: String, x: u32, y: u32 },
+    BulletDestroy(String),
 
-    EnemyCreate { id: String, x: u32, y: u32 }, // id 0x08
-    EnemyDestroy(String), // id 0x09
+    EnemyCreate { id: String, x: u32, y: u32 },
+    EnemyDestroy(String),
 
-    GameWon, // id 0x0A
-    GameLost, // id 0x0B
+    GameWon,
+    GameLost,
 }
 
 impl Packet {
@@ -33,7 +45,7 @@ impl Packet {
         match self {
             Self::GameInfo { width, height, pids } => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x01);
+                raw.put_u8(GAME_INFO);
                 raw.put_u32(width);
                 raw.put_u32(height);
                 raw.put_u8(pids.len() as u8);
@@ -42,26 +54,26 @@ impl Packet {
             },
             Self::PlayerJoin(pid) => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x02);
+                raw.put_u8(PLAYER_JOIN);
                 raw.put(pid.as_bytes());
                 raw.to_vec()
             },
             Self::PlayerDestroy(pid) => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x03);
+                raw.put_u8(PLAYER_DESTROY);
                 raw.put(pid.as_bytes());
                 raw.to_vec()
             },
             Self::PlayerEvent { pid, event } => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x04);
+                raw.put_u8(PLAYER_EVENT);
                 raw.put(pid.as_bytes());
                 raw.put_u8(event.parse());
                 raw.to_vec()
             },
             Self::PlayerPos { pid, x, y } => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x05);
+                raw.put_u8(PLAYER_POS);
                 raw.put(pid.as_bytes());
                 raw.put_u32(x);
                 raw.put_u32(y);
@@ -69,7 +81,7 @@ impl Packet {
             }
             Self::BulletCreate { id, x, y } => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x06);
+                raw.put_u8(BULLET_CREATE);
                 raw.put(id.as_bytes());
                 raw.put_u32(x);
                 raw.put_u32(y);
@@ -77,13 +89,13 @@ impl Packet {
             },
             Self::BulletDestroy(id) => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x07);
+                raw.put_u8(BULLET_DESTROY);
                 raw.put(id.as_bytes());
                 raw.to_vec()
             },
             Self::EnemyCreate { id, x, y } => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x08);
+                raw.put_u8(ENEMY_CREATE);
                 raw.put(id.as_bytes());
                 raw.put_u32(x);
                 raw.put_u32(y);
@@ -91,15 +103,15 @@ impl Packet {
             },
             Self::EnemyDestroy(id) => {
                 let mut raw = BytesMut::new();
-                raw.put_u8(0x09);
+                raw.put_u8(ENEMY_DESTROY);
                 raw.put(id.as_bytes());
                 raw.to_vec()
             },
             Self::GameWon => {
-                vec![0x0A]
+                vec![GAME_WON]
             },
             Self::GameLost => {
-                vec![0x0B]
+                vec![GAME_LOST]
             },
         }
     }
@@ -107,56 +119,56 @@ impl Packet {
     pub fn read_from(stream: &mut impl Read) -> Result<Option<Self>> {
         let first_byte = Self::read_u8(stream)?;
         match first_byte {
-            0x01 => {
+            GAME_INFO => {
                 let width = Self::read_u32(stream)?;
                 let height = Self::read_u32(stream)?;
                 let len = Self::read_u8(stream)?;
                 let pids = Self::read_len_str(stream, len as usize, PLAYER_ID_MAX)?;
                 Ok(Some(Self::GameInfo{width, height, pids}))
             }
-            0x02 => {
+            PLAYER_JOIN => {
                 let pid = Self::read_str(stream, PLAYER_ID_MAX)?;
                 Ok(Some(Self::PlayerJoin(pid)))
             }
-            0x03 => {
+            PLAYER_DESTROY => {
                 let pid = Self::read_str(stream, PLAYER_ID_MAX)?;
                 Ok(Some(Self::PlayerDestroy(pid)))
             }
-            0x04 => {
+            PLAYER_EVENT => {
                 let pid = Self::read_str(stream, PLAYER_ID_MAX)?;
                 let event = PlayerEvent::get(Self::read_u8(stream)?).unwrap();
                 Ok(Some(Self::PlayerEvent{pid, event}))
             }
-            0x05 => {
+            PLAYER_POS => {
                 let pid = Self::read_str(stream, PLAYER_ID_MAX)?;
                 let x = Self::read_u32(stream)?;
                 let y = Self::read_u32(stream)?;
                 Ok(Some(Self::PlayerPos{pid, x, y}))
             }
-            0x06 => {
+            BULLET_CREATE => {
                 let id = Self::read_str(stream, BULLET_ID_LEN)?; 
                 let x = Self::read_u32(stream)?;
                 let y = Self::read_u32(stream)?;
                 Ok(Some(Self::BulletCreate{id, x, y}))
             }
-            0x07 => {
+            BULLET_DESTROY => {
                 let id = Self::read_str(stream, BULLET_ID_LEN)?;
                 Ok(Some(Self::BulletDestroy(id)))
             }
-            0x08 => {
+            ENEMY_CREATE => {
                 let id = Self::read_str(stream, BULLET_ID_LEN)?; 
                 let x = Self::read_u32(stream)?;
                 let y = Self::read_u32(stream)?;
                 Ok(Some(Self::EnemyCreate{id, x, y}))
             }
-            0x09 => {
+            ENEMY_DESTROY => {
                 let id = Self::read_str(stream, BULLET_ID_LEN)?;
                 Ok(Some(Self::EnemyDestroy(id)))
             }
-            0x0A => {
+            GAME_WON => {
                 Ok(Some(Self::GameWon))
             }
-            0x0B => {
+            GAME_LOST => {
                 Ok(Some(Self::GameLost))
             }
             _ => Err(String::from("invalid first byte").into()),
@@ -191,56 +203,56 @@ impl Packet {
     pub async fn async_read_from<T: AsyncBufRead + Unpin>(stream: &mut T) -> Result<Option<Self>> {
         let first_byte = Self::async_read_u8(stream).await?;
         match first_byte {
-            0x01 => {
+            GAME_INFO => {
                 let width = Self::async_read_u32(stream).await?;
                 let height = Self::async_read_u32(stream).await?;
                 let len = Self::async_read_u8(stream).await?;
                 let pids = Self::async_read_len_str(stream, len as usize, PLAYER_ID_MAX).await?;
                 Ok(Some(Self::GameInfo{width, height, pids}))
             }
-            0x02 => {
+            PLAYER_JOIN => {
                 let pid = Self::async_read_str(stream, PLAYER_ID_MAX).await?;
                 Ok(Some(Self::PlayerJoin(pid)))
             }
-            0x03 => {
+            PLAYER_DESTROY => {
                 let pid = Self::async_read_str(stream, PLAYER_ID_MAX).await?;
                 Ok(Some(Self::PlayerDestroy(pid)))
             }
-            0x04 => {
+            PLAYER_EVENT => {
                 let pid = Self::async_read_str(stream, PLAYER_ID_MAX).await?;
                 let event = PlayerEvent::get(Self::async_read_u8(stream).await?).unwrap();
                 Ok(Some(Self::PlayerEvent{pid, event}))
             }
-            0x05 => {
+            PLAYER_POS => {
                 let pid = Self::async_read_str(stream, PLAYER_ID_MAX).await?;
                 let x = Self::async_read_u32(stream).await?;
                 let y = Self::async_read_u32(stream).await?;
                 Ok(Some(Self::PlayerPos{pid, x, y}))
             }
-            0x06 => {
+            BULLET_CREATE => {
                 let id = Self::async_read_str(stream, BULLET_ID_LEN).await?;
                 let x = Self::async_read_u32(stream).await?;
                 let y = Self::async_read_u32(stream).await?;
                 Ok(Some(Self::BulletCreate{id, x, y}))
             }
-            0x07 => {
+            BULLET_DESTROY => {
                 let id = Self::async_read_str(stream, BULLET_ID_LEN).await?;
                 Ok(Some(Self::BulletDestroy(id)))
             }
-            0x08 => {
+            ENEMY_CREATE => {
                 let id = Self::async_read_str(stream, BULLET_ID_LEN).await?;
                 let x = Self::async_read_u32(stream).await?;
                 let y = Self::async_read_u32(stream).await?;
                 Ok(Some(Self::EnemyCreate{id, x, y}))
             }
-            0x09 => {
+            ENEMY_DESTROY => {
                 let id = Self::async_read_str(stream, BULLET_ID_LEN).await?;
                 Ok(Some(Self::EnemyDestroy(id)))
             }
-            0x0A => {
+            GAME_WON => {
                 Ok(Some(Self::GameWon))
             }
-            0x0B => {
+            GAME_LOST => {
                 Ok(Some(Self::GameLost))
             }
             _ => Err(String::from("invalid first byte").into()),

@@ -7,5 +7,10 @@ edition = "2018"
 
 [dependencies]
 common = { path = "../common" }
-crossterm = "0.20.0"
+ggez = "0.6.1"
+mint = "0.5.7"
 crossbeam = "0.8.1"
+bytes = "1.1.0"
+byteorder = "1.4.3"
+nanoid = "0.4.0"
+structopt = { version = "0.3", default-features = false }

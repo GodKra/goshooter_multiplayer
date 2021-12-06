@@ -49,15 +49,19 @@ impl Server {
         self.top.start_game().await;
         self.bottom.start_game().await;
 
-        let r = tokio::join!(self.top.handle_team(), self.bottom.handle_team());
+        let (top_result, bottom_result) = tokio::join!(self.top.handle_team(), self.bottom.handle_team());
         
-        println!("{:?}", r);
+        println!("top: {:?}, bottom: {:?}", top_result, bottom_result);
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await; // let other tasks finish
         Ok(())
     }
 
     fn swap_enemy_channels(t1: &mut Team, t2: &mut Team) {
-        let t1_rx = t1.get_enemy_rx();
+        let t1_erx = t1.get_enemy_rx();
+        let t1_trx = t1.get_tcomms_rx();
         t1.set_enemy_rx(t2.get_enemy_rx());
-        t2.set_enemy_rx(t1_rx);
+        t1.set_tcomms_rx(t2.get_tcomms_rx());
+        t2.set_enemy_rx(t1_erx);
+        t2.set_tcomms_rx(t1_trx);
     }
 }

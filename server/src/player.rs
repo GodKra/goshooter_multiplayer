@@ -8,9 +8,11 @@ use crate::{bullet::Bullet};
 
 pub struct Player {
     x: u32,
+    y: u32,
     _max_x: u32,
     max_y: u32,
     last_fired: time::Instant,
+    last_updated: time::Instant,
 }
 
 impl Player {
@@ -39,6 +41,11 @@ impl Player {
                     Ok(packet) = reciever.recv() => {
                         match packet {
                             Packet::PlayerEvent { .. } => (),
+                            Packet::GameWon | Packet::GameLost => {
+                                stream_w.write(&packet.parse()).await.unwrap();
+                                println!("shutting down player loop");
+                                return;
+                            }
                             _ =>  { stream_w.write(&packet.parse()).await.unwrap(); },
                         }
                     }
@@ -62,16 +69,29 @@ impl Player {
             }
         });
 
-        Ok((id, Player { x: max_x/2, _max_x: max_x, max_y, last_fired: time::Instant::now()}))
+        Ok((id, Player { 
+            x: max_x/2, 
+            _max_x: max_x,
+            y: max_y-2,
+            max_y, 
+            last_fired: time::Instant::now(),
+            last_updated: time::Instant::now(),
+        }))
     }
-    pub fn move_to(&mut self, x: u32) {
+    pub fn move_to(&mut self, x: u32, y: u32) {
+        self.last_updated = time::Instant::now();
         self.x = x;
+        self.y = y;
     }
     pub fn fire(&mut self) -> Bullet {
         self.last_fired = time::Instant::now();
-        Bullet::new(self.x, self.max_y - 2, self.max_y)
+        Bullet::new(self.x, self.y, self.max_y)
     }
     pub fn last_fired(&self) -> Duration {
         self.last_fired.elapsed()
+    }
+    
+    pub fn last_updated(&self) -> Duration {
+        self.last_updated.elapsed()
     }
 }

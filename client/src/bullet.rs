@@ -1,18 +1,21 @@
 use ggez::graphics;
 
+use common::{BULLET_UPDATE_INTERVAL, BULLET_UPDATE_MOVEMENT};
+
 #[derive(Debug)]
 pub struct Bullet {
-    x: f32,
-    y: f32,
+    x: f32, // current x
+    y: f32, // current y
 
-    yy: f32, // final y
-    v: f32, // velocity
+    start_y: f32,
+    final_y: f32,
+    dt: f32, // delta time
 
     body: graphics::Mesh,
 }
 
 impl Bullet {
-    pub fn new(ctx: &mut ggez::Context, x: f32, y: f32, final_y: f32) -> Bullet {
+    pub fn new(ctx: &mut ggez::Context, x: f32, y: f32, start_y: f32, final_y: f32) -> Bullet {
         let body = graphics::Mesh::new_circle(
             ctx,
             graphics::DrawMode::fill(),
@@ -25,37 +28,41 @@ impl Bullet {
         Bullet { 
             x, 
             y,
-            yy: final_y,
-            v: 0.0,
+            start_y,
+            final_y,
+            dt: 0.0,
             body,
         }
     }
 
-    pub fn x(&self) -> f32 {
-        self.x
-    }
+    // pub fn x(&self) -> f32 {
+    //     self.x
+    // }
     
-    pub fn y(&self) -> f32 {
-        self.y
-    }
+    // pub fn y(&self) -> f32 {
+    //     self.y
+    // }
 
-    pub fn set_v(&mut self, v: f32) {
-        self.v = v;
-    } // y / 180.0, // ((600.0*50.0/10.0)/(1.0/60.0 * 1000.0)) = ((total distance * time) / distance per time ms)/(seconds per frame * 1000)
+    pub fn set_dt(&mut self, delta_t: f32) -> &mut Self {
+        self.dt = delta_t;
+        self
+    }
 
     pub fn update(&mut self) -> bool {
-        if (self.v > 0.0 && self.y >= self.v) || (self.v < 0.0 && self.y <= (self.yy-self.v)) {
-            self.y -= self.v
+        let v = (self.start_y-self.final_y)/((((self.start_y-self.final_y).abs()*BULLET_UPDATE_INTERVAL as f32)/BULLET_UPDATE_MOVEMENT as f32)/self.dt);
+        if (v >= 0.0 && self.y >= v) || (v <= 0.0 && self.y <= (self.final_y + v)) {
+            self.y -= v;
         } else {
-            self.y = 0.0;
+             self.y = self.final_y;
         }
 
-        self.y != self.yy
+        self.y != self.final_y
     }
 
-    pub fn move_to(&mut self, y: f32) {
-        self.y = y;
-    }
+    // pub fn move_to(&mut self, y: f32) -> &mut Self {
+    //     self.y = y;
+    //     self
+    // }
 
     pub fn draw(&self, ctx: &mut ggez::Context) -> ggez::GameResult {
         graphics::draw(ctx, &self.body, (ggez::mint::Point2::from([self.x, self.y]),))

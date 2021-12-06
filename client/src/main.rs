@@ -1,10 +1,11 @@
 mod player;
 mod bullet;
 
-use std::{collections::HashMap, io::Write, net::TcpStream, time::Instant};
+use std::{collections::HashMap, io::Write, net::TcpStream, time::{self, Instant}};
 
 use ggez::*;
 
+use mint::Point2;
 use player::Player;
 use bullet::Bullet;
 use common::*;
@@ -43,19 +44,29 @@ fn main() {
     event::run(ctx, event_loop, state);
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum GameStatus {
+    RUNNING,
+    WON,
+    LOST,
+}
+
 struct State {
     stream: TcpStream,
 
     width: f32,
     height: f32,
+    game_status: GameStatus,
 
     players: HashMap<String, Player>,
     bullets: HashMap<String, Bullet>,
-    enemies: HashMap<String, Bullet>,
     pos_ticker: crossbeam::channel::Receiver<Instant>,
+    last_fired: time::Instant,
 
     name: String,
     player: Player,
+    score: u32,
+    health_left: u32,
     
     // player controls
     move_r: f32,
@@ -101,12 +112,15 @@ impl State {
             stream,
             width,
             height,
+            game_status: GameStatus::RUNNING,
             players,
             bullets: HashMap::new(),
-            enemies: HashMap::new(),
             pos_ticker: crossbeam::channel::tick(std::time::Duration::from_millis(100)),
+            last_fired: time::Instant::now(),
             name,
             player,
+            score: 0,
+            health_left: GAME_END_SCORE,
             move_r: 0.0,
             move_l: 0.0,
             moved: false,
@@ -118,6 +132,9 @@ impl State {
 impl ggez::event::EventHandler<GameError> for State {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         const DESIRED_FPS: u32 = 60;
+        let dt = 1.0/DESIRED_FPS as f32 * 1000.0;
+        //let dt = timer::delta(ctx).as_millis() as f32;
+        //let dt = timer::average_delta(ctx).as_millis() as f32;
         while timer::check_update_time(ctx, DESIRED_FPS) {
             // update self
             let dx = self.move_r - self.move_l;
@@ -135,23 +152,27 @@ impl ggez::event::EventHandler<GameError> for State {
                     self.moved = false;
                 }
             }
-            if self.fire {
+            // spawn bullets
+            if self.fire && self.last_fired.elapsed() > time::Duration::from_millis(PLAYER_FIRE_INTERVAL) {
+                self.stream.write_all(&Packet::PlayerPos{
+                    pid: self.name.clone(), 
+                    x: self.player.mid_x() as u32, 
+                    y: self.player.y() as u32
+                }.parse()).unwrap();
                 self.stream.write_all(&Packet::PlayerEvent{pid: self.name.clone(), event: PlayerEvent::Fire}.parse()).unwrap();
+                self.last_fired = time::Instant::now();
             }
 
             // update others
             for (_, player) in self.players.iter_mut() {
-                if !player.update() {
-                    player.set_v(0.0);
-                };
+                player.update();
+                player.set_dt(dt);
             }
 
             // update bullets & enemies
             for (_, bullet) in self.bullets.iter_mut() {
                 bullet.update();
-            }
-            for (_, enemy) in self.enemies.iter_mut() {
-                enemy.update();
+                bullet.set_dt(dt);
             }
 
             // handle packets
@@ -164,36 +185,47 @@ impl ggez::event::EventHandler<GameError> for State {
                     Packet::PlayerPos { pid, x, y  } => {
                         if let Some(player) = self.players.get_mut(&pid) {
                             let x = player.get_actual_x(x as f32);
-                            player.set_pos(x, y as f32);
-                            player.set_v(player.dx()/6.0); // 6 = 100 / (1/60)
+                            player.set_pos(x, y as f32)
+                                  .set_dt(dt);
                         }
                     },
                     Packet::BulletCreate { id, x, y } => {
                         self.bullets.entry(id)
-                                    .or_insert_with(|| Bullet::new(ctx, x as f32, y as f32, 0.0))
-                                    .set_v(y as f32 / 180.0);
+                                    .or_insert_with(|| Bullet::new(ctx, x as f32, y as f32, y as f32, 0.0))
+                                    .set_dt(dt);  
                     },
                     Packet::BulletDestroy(id) => {
                         println!("bullet {} destroy", id);
                         self.bullets.remove(&id);
                     },
                     Packet::EnemyCreate { id, x, y } => {
-                        self.enemies.entry(id)
-                                    .or_insert_with(|| Bullet::new(ctx, x as f32, y as f32, 600.0))
-                                    .set_v(self.height / -180.0);
+                        let final_y = self.height;
+                        self.bullets.entry(id)
+                                    .or_insert_with(|| Bullet::new(ctx, x as f32, y as f32, y as f32, final_y))
+                                    .set_dt(dt);
                     },
                     Packet::EnemyDestroy(id) => {
                         println!("enemy {} destroy", id);
-                        self.enemies.remove(&id);
+                        self.bullets.remove(&id);
                     },
-                    // Packet::GameWon => {
-                    //     self.won = Some(true);
-                    //     break;
-                    // }, 
-                    // Packet::GameLost => {
-                    //     self.won = Some(true);
-                    //     break;
-                    // },
+                    Packet::BulletHit => {
+                        self.score += 1;
+                    },
+                    Packet::EnemyHit => {
+                        self.health_left -= 1;
+                    }
+                    Packet::GameWon => {
+                        //self.won = Some(true);
+                        println!("WON");
+                        self.game_status = GameStatus::WON;
+                        //ggez::event::quit(ctx);
+                    }, 
+                    Packet::GameLost => {
+                        //self.won = Some(true);
+                        println!("LOST");
+                        self.game_status = GameStatus::LOST;
+                        //ggez::event::quit(ctx);
+                    },
                     _ => (),
                 }
             }
@@ -204,6 +236,16 @@ impl ggez::event::EventHandler<GameError> for State {
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         graphics::clear(ctx, [0.1, 0.2, 0.3, 1.0].into());
 
+        if self.game_status != GameStatus::RUNNING {
+            self.game_over(ctx, self.game_status)?;
+            return Ok(());
+        }
+        
+        // draw scores
+        let scores = format!("Health: {}/{}\nScore: {}", self.health_left, GAME_END_SCORE, self.score);
+        graphics::draw(ctx, &graphics::Text::new(scores), (Point2::from([0.0,0.0]),)).unwrap();
+
+        // draw objects
         self.player.draw(ctx)?;
 
         for (_, player) in self.players.iter() {
@@ -211,9 +253,6 @@ impl ggez::event::EventHandler<GameError> for State {
         }
         for (_, bullet) in self.bullets.iter() {
             bullet.draw(ctx)?;
-        }
-        for (_, enemy) in self.enemies.iter() {
-            enemy.draw(ctx)?;
         }
 
         graphics::present(ctx)?;
@@ -243,5 +282,21 @@ impl ggez::event::EventHandler<GameError> for State {
             event::KeyCode::Up => self.fire = false,
             _ => (),
         }
+    }
+}
+
+impl State {
+    fn game_over(&mut self, ctx: &mut Context, game_status: GameStatus) -> GameResult {
+        let text = graphics::Text::new(if game_status == GameStatus::WON {
+            "Your team won"
+        } else {
+            "Your team lost"
+        });
+        let center = [self.width/2.0 - text.width(ctx) as f32/2.0, self.height/2.0];
+        graphics::draw(ctx, &text, (Point2::from(center),))?;
+        graphics::present(ctx)?;
+        ggez::timer::sleep(std::time::Duration::from_secs(5));
+        ggez::event::quit(ctx);
+        Ok(())
     }
 }

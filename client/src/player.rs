@@ -1,3 +1,5 @@
+use common::PLAYER_UPDATE_INTERVAL;
+
 use ggez::{
     GameResult, 
     graphics,
@@ -10,9 +12,9 @@ pub struct Player {
     x: f32,
     y: f32,
 
-    xx: f32, // desired x
-    yy: f32, // desired y
-    v: f32, // velocity
+    final_x: f32,
+    final_y: f32,
+    dt: f32, // delta time
 
     body: graphics::Image,
     name: graphics::Text,
@@ -28,9 +30,9 @@ impl Player {
         Player {
             x: 0.0,
             y: 500.0,
-            xx: 0.0,
-            yy: 0.0,
-            v: 0.0,
+            final_x: 0.0,
+            final_y: 0.0,
+            dt: 0.0,
             body,
             name,
         }
@@ -40,27 +42,30 @@ impl Player {
         self.x += dx;
     }
 
-    pub fn set_pos(&mut self, x: f32, y: f32) {
-        self.xx = x;
-        self.yy = y;
+    pub fn set_pos(&mut self, x: f32, y: f32) -> &mut Self {
+        self.final_x = x;
+        self.final_y = y;
+        self
     }
 
     pub fn update(&mut self) -> bool {
-        if (self.v > 0.0 && self.dx() > 0.0) || (self.v < 0.0 && self.dx() < 0.0) {
-            self.move_dx(self.v);
+        let v = self.dx() / (PLAYER_UPDATE_INTERVAL as f32 / self.dt);
+        if (v > 0.0 && self.dx() > 0.0) || (v < 0.0 && self.dx() < 0.0) {
+            self.move_dx(v);
         } else  {
             return false
         }
         true
     }
 
-    pub fn set_v(&mut self, v: f32) {
-        self.v = v;
+    pub fn set_dt(&mut self, delta_time: f32) -> &mut Self {
+        self.dt = delta_time;
+        self
     }
 
-    pub fn x(&self) -> f32 {
-        self.x
-    }
+    // pub fn x(&self) -> f32 {
+    //     self.x
+    // }
 
     pub fn mid_x(&self) -> f32 {
         self.x + (self.body.height()/2) as f32
@@ -75,7 +80,7 @@ impl Player {
     }
 
     pub fn dx(&self) -> f32 {
-        return self.xx - self.x
+        return self.final_x - self.x
     }
     
     pub fn draw(&self, ctx: &mut ggez::Context) -> GameResult {
